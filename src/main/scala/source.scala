@@ -6,6 +6,7 @@ import org.json4s.native.JsonMethods._
 import scala.util.{Try, Success, Failure}
 
 object Source {
+  case class Column(name:String, ctype:String, table:String, schema:String, catalog:String)
 
   def getJDBCConnectionsFromFile(path: String): Seq[String] = {
     val contents = io.Source.fromFile(path).mkString
@@ -20,6 +21,21 @@ object Source {
       case Failure(e) => Seq()
     }
   }
+
+  def isDuplicateColumn(column: Column, visitedColumns: collection.mutable.Set[Column]) = {
+    if (visitedColumns contains column) true else {
+      visitedColumns add column
+      false
+    }
+  }
+
+  def isTimeColumn(column: Column) =
+    column.ctype == "DATE" ||
+      column.ctype == "DATETIME" ||
+      column.ctype == "TIMESTAMP" ||
+      column.ctype == "TIME_WITH_TIMEZONE" ||
+      column.ctype == "TIMESTAMP_WITH_TIMEZONE"
+
 
   def main(args: Array[String]) {
 
@@ -54,14 +70,13 @@ object Source {
     } yield (jdbcConnection, column, value)) foreach println
   }
 
-  case class Column(name:String, ctype:String, table:String, schema:String, catalog:String)
 
   def getAllColumns(conn: Connection): Iterator[Column] = {
     val tryRs = Try(conn.getMetaData.getColumns(null, null, "%", "%"))
     tryRs match {
       case Failure(e) => Iterator.empty
       case Success(rs) => Iterator.continually((rs.next, rs)).takeWhile(_._1).map {
-          case (_,rs) => Column(rs.getString(4), rs.getString(6), rs.getString(3), rs.getString(2), rs.getString(1))
+        case (_,rs) => Column(rs.getString(4), rs.getString(6), rs.getString(3), rs.getString(2), rs.getString(1))
       }
     }
   }
