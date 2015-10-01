@@ -2,6 +2,8 @@ import akka.actor._
 import akka.routing._
 import Source._
 
+import scala.util.{Try, Success, Failure}
+
 case class StartMessage(file: String)
 case class StartResult(result: Seq[(String, String, String)])
 
@@ -30,11 +32,14 @@ object SourceActorObject {
 
     def receive = {
       case DBMessage(jdbc: String) => {
-        val conn = createJDBCConnection(jdbc)
-        val columns = getAllColumns(conn)
-        conn.close
-        println(s"Exploring $jdbc")
-        columns filter isTimeColumn filter isColumnAllowed foreach (extractor ! ColumnMessage(jdbc, _))
+        val tryConn = Try(createJDBCConnection(jdbc))
+        tryConn match {
+          case Success(conn) =>
+            val columns = getAllColumns(conn)
+            conn.close
+            columns filter isTimeColumn filter isColumnAllowed foreach (extractor ! ColumnMessage(jdbc, _))
+          case Failure(e) => this.synchronized(println(s"#$jdbc#${e.toString}"))
+        }
       }
     }
   }
@@ -43,10 +48,11 @@ object SourceActorObject {
     def receive = {
       case ColumnMessage(jdbc: String, column:Column) => {
         val conn = createJDBCConnection(jdbc)
-        getValue(conn, column) match {
-          case Some(value) => println(s"Got $value from table ${column.table} column ${column.name}")
-          case None => println(s"Failed to get value from table ${column.table} column ${column.name}")
+        val value = getValue(conn, column) match {
+          case Some(value) => value
+          case None => ""
         }
+        this.synchronized(println((jdbc, column, value)))
         conn.close
       }
     }
@@ -55,7 +61,7 @@ object SourceActorObject {
 
   def main (args: Array[String]) {
     val system = ActorSystem("ebi-sources")
-    val extractorActor = system.actorOf(RoundRobinPool(5).props(Props[ValueExtractorActor]))
+    val extractorActor = system.actorOf(RoundRobinPool(10).props(Props[ValueExtractorActor]))
     val exploreActor = system.actorOf(Props(new ConnectionExploreActor(extractorActor)))
     val inputActor = system.actorOf(Props(new ListenerActor(exploreActor)))
 
