@@ -36,8 +36,8 @@ object SourceActorObject {
         tryConn match {
           case Success(conn) =>
             val columns = getAllColumns(conn)
-            conn.close
             columns filter isTimeColumn filter isColumnAllowed foreach (extractor ! ColumnMessage(jdbc, _))
+            conn.close
           case Failure(e) => this.synchronized(println(s"#$jdbc#${e.toString}"))
         }
       }
